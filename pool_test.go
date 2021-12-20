@@ -1,6 +1,9 @@
 package go_pool
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestPoolSizeAdjustment(t *testing.T) {
 	pool := Initialize(10, func(interface{}) interface{} { return "foo" })
@@ -8,22 +11,81 @@ func TestPoolSizeAdjustment(t *testing.T) {
 		t.Errorf("Wrong size of pool: %v != %v", act, exp)
 	}
 
-	if exp, act := 10, pool.GetPoolSize(); exp != act {
+	//Testing of Set and Get pool size
+	pool.SetPoolSize(0)
+	if exp, act := 0, pool.GetPoolSize(); exp != act {
 		t.Errorf("Wrong size of pool: %v != %v", act, exp)
 	}
+
+	pool.SetPoolSize(9)
+	if exp, act := 9, pool.GetPoolSize(); exp != act {
+		t.Errorf("Wrong size of pool: %v != %v", act, exp)
+	}
+
+	//Testng of pool close
+	pool.Close()
+	if exp, act := 0, pool.GetPoolSize(); exp != act {
+		t.Errorf("Wrong size of pool: %v != %v", act, exp)
+	}
+
 }
 
-func TestFuncJob(t *testing.T) {
-	pool := Initialize(10, func(in interface{}) interface{} {
-		intVal := in.(int)
-		return intVal * 2
+func TestProcessJob(t *testing.T) {
+	pool := Initialize(10, func(f interface{}) interface{} {
+		return f.(int)
 	})
 	defer pool.Close()
 
 	for i := 0; i < 10; i++ {
-		ret := pool.Process(10)
-		if exp, act := 20, ret.(int); exp != act {
+		ret := pool.Process(i)
+		if exp, act := i, ret.(int); exp != act {
 			t.Errorf("Wrong result: %v != %v", act, exp)
 		}
 	}
+}
+
+func TestProcessWithExpiryJob(t *testing.T) {
+	pool := Initialize(10, func(f interface{}) interface{} {
+		return f.(int)
+	})
+	defer pool.Close()
+
+	for i := 0; i < 10; i++ {
+		ret, err := pool.ProcessWithExpiry(i, time.Duration(time.Millisecond))
+		if err != nil {
+			t.Errorf("Error caused: %v", err)
+		}
+		if exp, act := i, ret.(int); exp != act {
+			t.Errorf("Wrong result: %v != %v", act, exp)
+		}
+	}
+}
+
+func TestPayloadTimedout(t *testing.T) {
+	pool := Initialize(1, func(f interface{}) interface{} {
+		val := f.(int)
+		<-time.After(2 * time.Millisecond)
+		return val
+	})
+	defer pool.Close()
+
+	_, act := pool.ProcessWithExpiry(1, time.Duration(time.Millisecond))
+	if exp := ErrJobTimedOut; exp != act {
+		t.Errorf("Wrong error returned: %v != %v", act, exp)
+	}
+}
+
+func TestProcessAfterPoolClose(t *testing.T) {
+	pool := Initialize(10, func(f interface{}) interface{} {
+		return f.(int)
+	})
+	pool.Close()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Process after Stop() did not panic")
+		}
+	}()
+	
+	pool.Process(1)
 }
