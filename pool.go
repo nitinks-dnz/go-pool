@@ -73,7 +73,6 @@ func (p *Pool) ProcessWithExpiry(payload interface{}, timeout time.Duration) (in
 	p.reqQueue = p.reqQueue + 1
 
 	tout := time.NewTimer(timeout)
-
 	var request routineRequest
 	var open bool
 
@@ -90,6 +89,18 @@ func (p *Pool) ProcessWithExpiry(payload interface{}, timeout time.Duration) (in
 	select {
 	case request.reqChan <- payload:
 	case <-tout.C:
+		request.interruptFunc()
+		p.reqQueue = p.reqQueue - 1
+		return nil, ErrJobTimedOut
+	}
+
+	select {
+	case payload, open = <-request.retChan:
+		if !open {
+			return nil, ErrWorkerClosed
+		}
+	case <-tout.C:
+		request.interruptFunc()
 		p.reqQueue = p.reqQueue - 1
 		return nil, ErrJobTimedOut
 	}
