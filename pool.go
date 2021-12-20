@@ -2,6 +2,7 @@ package go_pool
 
 import (
 	"errors"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -32,8 +33,9 @@ type Worker interface {
 	Terminate()
 }
 
-func Initialize(n int, f func(interface{}) interface{}) *Pool {
-	return New(n, func() Worker {
+func Initialize(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool {
+	setCpuToBeUsed(nCpus)
+	return New(nRoutines, func() Worker {
 		return &initWorker{
 			processor: f,
 		}
@@ -166,4 +168,10 @@ func (p *Pool) GetPoolSize() int {
 func (p *Pool) Close() {
 	p.SetPoolSize(0)
 	close(p.reqChan)
+}
+
+func setCpuToBeUsed(n int) {
+	if n < runtime.NumCPU() {
+		runtime.GOMAXPROCS(n)
+	}
 }

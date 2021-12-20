@@ -1,12 +1,13 @@
 package go_pool
 
 import (
+	"runtime"
 	"testing"
 	"time"
 )
 
 func TestPoolSizeAdjustment(t *testing.T) {
-	pool := Initialize(10, func(interface{}) interface{} { return "foo" })
+	pool := Initialize(8, 10, func(interface{}) interface{} { return "foo" })
 	if exp, act := 10, len(pool.routines); exp != act {
 		t.Errorf("Wrong size of pool: %v != %v", act, exp)
 	}
@@ -31,9 +32,7 @@ func TestPoolSizeAdjustment(t *testing.T) {
 }
 
 func TestProcessJob(t *testing.T) {
-	pool := Initialize(10, func(f interface{}) interface{} {
-		return f.(int)
-	})
+	pool := Initialize(8, 10, func(f interface{}) interface{} { return f.(int) })
 	defer pool.Close()
 
 	for i := 0; i < 10; i++ {
@@ -45,9 +44,7 @@ func TestProcessJob(t *testing.T) {
 }
 
 func TestProcessWithExpiryJob(t *testing.T) {
-	pool := Initialize(10, func(f interface{}) interface{} {
-		return f.(int)
-	})
+	pool := Initialize(8, 10, func(f interface{}) interface{} { return f.(int) })
 	defer pool.Close()
 
 	for i := 0; i < 10; i++ {
@@ -62,7 +59,7 @@ func TestProcessWithExpiryJob(t *testing.T) {
 }
 
 func TestPayloadTimedout(t *testing.T) {
-	pool := Initialize(1, func(f interface{}) interface{} {
+	pool := Initialize(8, 1, func(f interface{}) interface{} {
 		val := f.(int)
 		<-time.After(2 * time.Millisecond)
 		return val
@@ -76,9 +73,7 @@ func TestPayloadTimedout(t *testing.T) {
 }
 
 func TestProcessAfterPoolClose(t *testing.T) {
-	pool := Initialize(10, func(f interface{}) interface{} {
-		return f.(int)
-	})
+	pool := Initialize(8, 1, func(f interface{}) interface{} { return f.(int) })
 	pool.Close()
 
 	defer func() {
@@ -86,6 +81,19 @@ func TestProcessAfterPoolClose(t *testing.T) {
 			t.Errorf("Process after Stop() did not panic")
 		}
 	}()
-	
+
 	pool.Process(1)
+}
+
+func TestNumberOfCPUtoBeUsed(t *testing.T) {
+	pool := Initialize(16, 1, func(interface{}) interface{} { return "foo" })
+	defer pool.Close()
+	if exp, act := 8, runtime.GOMAXPROCS(8); exp != act {
+		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
+	}
+
+	setCpuToBeUsed(4)
+	if exp, act := 4, runtime.GOMAXPROCS(4); exp != act {
+		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
+	}
 }
