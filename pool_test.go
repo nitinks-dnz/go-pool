@@ -84,6 +84,23 @@ func TestProcessAfterPoolClose(t *testing.T) {
 
 	pool.Process(1)
 }
+func TestQueueLength(t *testing.T) {
+	pool := Initialize(8, 1, func(f interface{}) interface{} {
+		val := f.(int)
+		<-time.After(2 * time.Millisecond)
+		return val
+	})
+	defer pool.Close()
+
+	befQ := pool.QueueLength()
+	go func() {
+		pool.Process(1)
+	}()
+	time.Sleep(time.Millisecond)
+	if exp, act := befQ+1, pool.QueueLength(); exp != act {
+		t.Errorf("Expected Queue length: %v, but got: %v", exp, act)
+	}
+}
 
 func TestNumberOfCPUtoBeUsed(t *testing.T) {
 	pool := Initialize(16, 1, func(interface{}) interface{} { return "foo" })
