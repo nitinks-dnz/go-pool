@@ -12,7 +12,8 @@ type routines struct {
 type routineRequest struct {
 	reqChan chan<- interface{}
 
-	retChan <-chan interface{}
+	retChan       <-chan interface{}
+	interruptFunc func()
 }
 
 func newRoutineWrapper(reqChan chan routineRequest, payload Worker) *routines {
@@ -20,6 +21,8 @@ func newRoutineWrapper(reqChan chan routineRequest, payload Worker) *routines {
 		worker:        payload,
 		interruptChan: make(chan struct{}),
 		reqChan:       reqChan,
+		closeChan:     make(chan struct{}),
+		closedChan:    make(chan struct{}),
 	}
 
 	go r.run()
@@ -38,6 +41,7 @@ func (r *routines) join() {
 func (r *routines) run() {
 	reqChan, retChan := make(chan interface{}), make(chan interface{})
 	defer func() {
+		r.worker.Terminate()
 		close(retChan)
 		close(r.closedChan)
 	}()
@@ -63,4 +67,9 @@ func (r *routines) run() {
 			return
 		}
 	}
+}
+
+func (r *routines) interrupt() {
+	close(r.interruptChan)
+	r.worker.Interrupt()
 }
