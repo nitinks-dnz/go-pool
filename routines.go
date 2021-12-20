@@ -49,8 +49,9 @@ func (r *routines) run() {
 	for {
 		select {
 		case r.reqChan <- routineRequest{
-			reqChan: reqChan,
-			retChan: retChan,
+			reqChan:       reqChan,
+			retChan:       retChan,
+			interruptFunc: r.interrupt,
 		}:
 			select {
 			case payload := <-reqChan:
