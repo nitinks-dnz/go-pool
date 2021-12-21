@@ -1,5 +1,6 @@
 package go_pool
 
+// routines wraps go routines and worker and manages the lifecycle of both of them.
 type routines struct {
 	worker        Worker
 	interruptChan chan struct{}
@@ -9,6 +10,7 @@ type routines struct {
 	closedChan chan struct{}
 }
 
+// routineRequest is a struct which holds the payload for worker until process is completed
 type routineRequest struct {
 	reqChan chan<- interface{}
 
@@ -26,7 +28,6 @@ func newRoutineWrapper(reqChan chan routineRequest, payload Worker) *routines {
 	}
 
 	go r.run()
-
 	return &r
 }
 

@@ -107,14 +107,15 @@ func TestQueueLength(t *testing.T) {
 }
 
 func TestNumberOfCPUtoBeUsed(t *testing.T) {
-	pool := Initialize(16, 1, func(interface{}) interface{} { return "foo" })
+	nCPU := runtime.NumCPU()
+	pool := Initialize(nCPU*4, 1, func(interface{}) interface{} { return "foo" })
 	defer pool.Close()
-	if exp, act := 8, runtime.GOMAXPROCS(8); exp != act {
+	if exp, act := nCPU, runtime.GOMAXPROCS(nCPU); exp != act {
 		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
 	}
 
-	setCpuToBeUsed(4)
-	if exp, act := 4, runtime.GOMAXPROCS(4); exp != act {
+	setCpuToBeUsed(nCPU / 2)
+	if exp, act := nCPU/2, runtime.GOMAXPROCS(nCPU/2); exp != act {
 		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
 	}
 }

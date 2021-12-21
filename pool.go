@@ -8,12 +8,13 @@ import (
 )
 
 var (
-	ErrPoolNotRunning = errors.New("the pool is not running")
-	ErrJobNotFunc     = errors.New("generic worker not given a func()")
-	ErrWorkerClosed   = errors.New("worker was closed")
-	ErrJobTimedOut    = errors.New("job request timed out")
+	ErrPoolNotRunning = errors.New("the pool is closed")
+	ErrJobNotFunc     = errors.New("init worker not given a func()")
+	ErrWorkerClosed   = errors.New("no routine is active")
+	ErrJobTimedOut    = errors.New("job request timed expired")
 )
 
+// Pool is a struct which contains the list of routines
 type Pool struct {
 	reqQueue int
 
@@ -24,8 +25,8 @@ type Pool struct {
 	mut sync.Mutex
 }
 
+// Worker is an interface representing the routine agent
 type Worker interface {
-	// Process will synchronously perform a job and return the result.
 	Process(interface{}) interface{}
 
 	BlockUntilReady()
@@ -33,6 +34,7 @@ type Worker interface {
 	Terminate()
 }
 
+// Initialize is the public function which creates the pool
 func Initialize(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool {
 	setCpuToBeUsed(nCpus)
 	return New(nRoutines, func() Worker {
@@ -113,6 +115,53 @@ func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration) 
 	return retPayload, nil
 }
 
+func (p *Pool) SetPoolSize(n int) {
+	p.mut.Lock()
+	defer p.mut.Unlock()
+
+	lWorkers := len(p.routines)
+	if lWorkers == n {
+		return
+	}
+
+	for i := lWorkers; i < n; i++ {
+		p.routines = append(p.routines, newRoutineWrapper(p.reqChan, p.payload()))
+	}
+
+	for i := n; i < lWorkers; i++ {
+		p.routines[i].stop()
+	}
+
+	for i := n; i < lWorkers; i++ {
+		p.routines[i].join()
+		p.routines[i] = nil
+	}
+
+	p.routines = p.routines[:n]
+}
+
+func (p *Pool) GetPoolSize() int {
+	p.mut.Lock()
+	defer p.mut.Unlock()
+
+	return len(p.routines)
+}
+
+func (p *Pool) Close() {
+	p.SetPoolSize(0)
+	close(p.reqChan)
+}
+
+func (p *Pool) QueueLength() int {
+	return p.reqQueue
+}
+
+func setCpuToBeUsed(n int) {
+	if n < runtime.NumCPU() {
+		runtime.GOMAXPROCS(n)
+	}
+}
+
 type initWorker struct {
 	processor func(interface{}) interface{}
 }
@@ -123,56 +172,3 @@ func (w *initWorker) Process(payload interface{}) interface{} {
 func (w *initWorker) BlockUntilReady() {}
 func (w *initWorker) Interrupt()       {}
 func (w *initWorker) Terminate()       {}
-
-func (p *Pool) QueueLength() int {
-	return p.reqQueue
-}
-
-func (p *Pool) SetPoolSize(n int) {
-	p.mut.Lock()
-	defer p.mut.Unlock()
-
-	lWorkers := len(p.routines)
-	if lWorkers == n {
-		return
-	}
-
-	// Add extra workers if N > len(workers)
-	for i := lWorkers; i < n; i++ {
-		p.routines = append(p.routines, newRoutineWrapper(p.reqChan, p.payload()))
-	}
-
-	// Asynchronously stop all workers > N
-	for i := n; i < lWorkers; i++ {
-		p.routines[i].stop()
-	}
-
-	// Synchronously wait for all workers > N to stop
-	for i := n; i < lWorkers; i++ {
-		p.routines[i].join()
-		p.routines[i] = nil
-	}
-
-	// Remove stopped workers from slice
-	p.routines = p.routines[:n]
-}
-
-// GetSize returns the current size of the pool.
-func (p *Pool) GetPoolSize() int {
-	p.mut.Lock()
-	defer p.mut.Unlock()
-
-	return len(p.routines)
-}
-
-// Close will terminate all workers and close the job channel of this Pool.
-func (p *Pool) Close() {
-	p.SetPoolSize(0)
-	close(p.reqChan)
-}
-
-func setCpuToBeUsed(n int) {
-	if n < runtime.NumCPU() {
-		runtime.GOMAXPROCS(n)
-	}
-}
