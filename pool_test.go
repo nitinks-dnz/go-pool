@@ -93,11 +93,15 @@ func TestQueueLength(t *testing.T) {
 	defer pool.Close()
 
 	befQ := pool.QueueLength()
+	if exp, act := 0, befQ; exp != act {
+		t.Errorf("Expected Queue length: %v, but got: %v", exp, act)
+	}
+
 	go func() {
 		pool.Process(1)
 	}()
 	time.Sleep(time.Millisecond)
-	if exp, act := befQ+1, pool.QueueLength(); exp != act {
+	if exp, act := 1, pool.QueueLength(); exp != act {
 		t.Errorf("Expected Queue length: %v, but got: %v", exp, act)
 	}
 }

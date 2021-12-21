@@ -52,7 +52,7 @@ func New(n int, payload func() Worker) *Pool {
 	return p
 }
 
-func (p *Pool) Process(payload interface{}) interface{} {
+func (p *Pool) Process(reqPayload interface{}) interface{} {
 	p.reqQueue = p.reqQueue + 1
 
 	request, reqOk := <-p.reqChan
@@ -60,22 +60,23 @@ func (p *Pool) Process(payload interface{}) interface{} {
 		panic(ErrPoolNotRunning)
 	}
 
-	request.reqChan <- payload
+	request.reqChan <- reqPayload
 
-	payload, retOk := <-request.retChan
+	retPayload, retOk := <-request.retChan
 	if !retOk {
 		panic(ErrWorkerClosed)
 	}
 
 	p.reqQueue = p.reqQueue - 1
-	return payload
+	return retPayload
 }
 
-func (p *Pool) ProcessWithExpiry(payload interface{}, timeout time.Duration) (interface{}, error) {
+func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration) (interface{}, error) {
 	p.reqQueue = p.reqQueue + 1
 
 	tout := time.NewTimer(timeout)
 	var request routineRequest
+	var retPayload interface{}
 	var open bool
 
 	select {
@@ -89,7 +90,7 @@ func (p *Pool) ProcessWithExpiry(payload interface{}, timeout time.Duration) (in
 	}
 
 	select {
-	case request.reqChan <- payload:
+	case request.reqChan <- reqPayload:
 	case <-tout.C:
 		request.interruptFunc()
 		p.reqQueue = p.reqQueue - 1
@@ -97,7 +98,7 @@ func (p *Pool) ProcessWithExpiry(payload interface{}, timeout time.Duration) (in
 	}
 
 	select {
-	case payload, open = <-request.retChan:
+	case retPayload, open = <-request.retChan:
 		if !open {
 			return nil, ErrWorkerClosed
 		}
@@ -109,7 +110,7 @@ func (p *Pool) ProcessWithExpiry(payload interface{}, timeout time.Duration) (in
 
 	tout.Stop()
 	p.reqQueue = p.reqQueue - 1
-	return payload, nil
+	return retPayload, nil
 }
 
 type initWorker struct {
