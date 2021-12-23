@@ -12,6 +12,9 @@ var (
 	ErrJobNotFunc     = errors.New("init worker not given a func()")
 	ErrWorkerClosed   = errors.New("no routine is active")
 	ErrJobTimedOut    = errors.New("job request timed expired")
+
+	once    sync.Once
+	poolVar *Pool
 )
 
 // Pool is a struct which contains the list of routines
@@ -45,13 +48,14 @@ func Initialize(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool
 }
 
 func New(n int, payload func() Worker) *Pool {
-	p := &Pool{
-		payload: payload,
-		reqChan: make(chan routineRequest),
-	}
-	p.SetPoolSize(n)
-
-	return p
+	once.Do(func() {
+		poolVar = &Pool{
+			payload: payload,
+			reqChan: make(chan routineRequest),
+		}
+		poolVar.SetPoolSize(n)
+	})
+	return poolVar
 }
 
 func (p *Pool) Process(reqPayload interface{}) interface{} {

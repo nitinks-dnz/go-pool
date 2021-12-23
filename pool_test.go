@@ -6,33 +6,30 @@ import (
 	"time"
 )
 
-func TestPoolSizeAdjustment(t *testing.T) {
-	pool := Initialize(8, 10, func(interface{}) interface{} { return "foo" })
-	if exp, act := 10, len(pool.routines); exp != act {
-		t.Errorf("Wrong size of pool: %v != %v", act, exp)
-	}
+var (
+	tPool *Pool
+)
 
-	//Testing of Set and Get pool size
-	pool.SetPoolSize(0)
-	if exp, act := 0, pool.GetPoolSize(); exp != act {
-		t.Errorf("Wrong size of pool: %v != %v", act, exp)
-	}
+func newTestPool(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool {
+	setCpuToBeUsed(nCpus)
+	return newWorker(nRoutines, func() Worker {
+		return &initWorker{
+			processor: f,
+		}
+	})
+}
 
-	pool.SetPoolSize(9)
-	if exp, act := 9, pool.GetPoolSize(); exp != act {
-		t.Errorf("Wrong size of pool: %v != %v", act, exp)
+func newWorker(n int, payload func() Worker) *Pool {
+	poolVar = &Pool{
+		payload: payload,
+		reqChan: make(chan routineRequest),
 	}
-
-	//Testng of pool close
-	pool.Close()
-	if exp, act := 0, pool.GetPoolSize(); exp != act {
-		t.Errorf("Wrong size of pool: %v != %v", act, exp)
-	}
-
+	poolVar.SetPoolSize(n)
+	return poolVar
 }
 
 func TestProcessJob(t *testing.T) {
-	pool := Initialize(8, 10, func(f interface{}) interface{} { return f.(int) })
+	pool := newTestPool(8, 10, func(f interface{}) interface{} { return f.(int) })
 	defer pool.Close()
 
 	for i := 0; i < 10; i++ {
@@ -44,7 +41,7 @@ func TestProcessJob(t *testing.T) {
 }
 
 func TestProcessWithExpiryJob(t *testing.T) {
-	pool := Initialize(8, 10, func(f interface{}) interface{} { return f.(int) })
+	pool := newTestPool(8, 10, func(f interface{}) interface{} { return f.(int) })
 	defer pool.Close()
 
 	for i := 0; i < 10; i++ {
@@ -59,7 +56,7 @@ func TestProcessWithExpiryJob(t *testing.T) {
 }
 
 func TestPayloadTimedout(t *testing.T) {
-	pool := Initialize(8, 1, func(f interface{}) interface{} {
+	pool := newTestPool(8, 1, func(f interface{}) interface{} {
 		val := f.(int)
 		<-time.After(2 * time.Millisecond)
 		return val
@@ -73,7 +70,7 @@ func TestPayloadTimedout(t *testing.T) {
 }
 
 func TestProcessAfterPoolClose(t *testing.T) {
-	pool := Initialize(8, 1, func(f interface{}) interface{} { return f.(int) })
+	pool := newTestPool(8, 1, func(f interface{}) interface{} { return f.(int) })
 	pool.Close()
 
 	defer func() {
@@ -84,8 +81,9 @@ func TestProcessAfterPoolClose(t *testing.T) {
 
 	pool.Process(1)
 }
+
 func TestQueueLength(t *testing.T) {
-	pool := Initialize(8, 1, func(f interface{}) interface{} {
+	pool := newTestPool(8, 1, func(f interface{}) interface{} {
 		val := f.(int)
 		<-time.After(2 * time.Millisecond)
 		return val
@@ -108,7 +106,7 @@ func TestQueueLength(t *testing.T) {
 
 func TestNumberOfCPUtoBeUsed(t *testing.T) {
 	nCPU := runtime.NumCPU()
-	pool := Initialize(nCPU*4, 1, func(interface{}) interface{} { return "foo" })
+	pool := newTestPool(nCPU*4, 1, func(interface{}) interface{} { return "foo" })
 	defer pool.Close()
 	if exp, act := nCPU, runtime.GOMAXPROCS(nCPU); exp != act {
 		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
@@ -117,5 +115,38 @@ func TestNumberOfCPUtoBeUsed(t *testing.T) {
 	setCpuToBeUsed(nCPU / 2)
 	if exp, act := nCPU/2, runtime.GOMAXPROCS(nCPU/2); exp != act {
 		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
+	}
+}
+
+func TestPoolSizeAdjustment(t *testing.T) {
+	pool := Initialize(8, 10, func(interface{}) interface{} { return "Foo" })
+	if exp, act := 10, len(pool.routines); exp != act {
+		t.Errorf("Wrong size of pool: %v != %v", act, exp)
+	}
+
+	//Testing of Set and Get pool size
+	pool.SetPoolSize(0)
+	if exp, act := 0, pool.GetPoolSize(); exp != act {
+		t.Errorf("Wrong size of pool: %v != %v", act, exp)
+	}
+
+	pool.SetPoolSize(9)
+	if exp, act := 9, pool.GetPoolSize(); exp != act {
+		t.Errorf("Wrong size of pool: %v != %v", act, exp)
+	}
+
+	//Testng of pool close
+	pool.Close()
+	if exp, act := 0, pool.GetPoolSize(); exp != act {
+		t.Errorf("Wrong size of pool: %v != %v", act, exp)
+	}
+}
+
+func TestSingletonInitialization(t *testing.T) {
+	pool := Initialize(8, 10, func(f interface{}) interface{} { return f.(int) })
+
+	_, reqOk := <-pool.reqChan
+	if reqOk {
+		t.Errorf("Pool should be closed")
 	}
 }
