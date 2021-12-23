@@ -20,42 +20,42 @@ This GoLang library manages a pool of goroutines which has got the ability to de
 ### Usage- 
 
 1. Install the dependancy
-``` shell
-go get github.com/nitinks-dnz/go-pool
-```
+   ``` shell
+   go get github.com/nitinks-dnz/go-pool
+   ```
 2. Initialize the pool
-```go
-pool := go_pool.Initialize(nCPUs, nRoutines, fun(input interface{}) interface{}{
-	// ToDo - Define some functionality to be performed
-})
-defer pool.Close()
-```
+   ```go
+   pool := go_pool.Initialize(nCPUs, nRoutines, fun(input interface{}) interface{}{
+       // ToDo - Define some functionality to be performed
+   })
+   defer pool.Close()
+   ```
 3. Adding jobs to the pool
-```go
-output := pool.Process(input)
-```
+   ```go
+   output := pool.Process(input)
+   ```
 4. Adding jobs to the pool with timeout
-```go
-output := pool.ProcessWithExpiry(input, time.Duration(time.Second))
-```
+   ```go
+   output := pool.ProcessWithExpiry(input, time.Duration(time.Second))
+   ```
 5. Managing the pool size
-```go
-nRoutines := pool.GetPoolSize()
-nRoutines = nRoutines + 10      //Adding 10 more go routines to pool
-pool.SetPoolSize(nRoutines)
-```
+   ```go
+   nRoutines := pool.GetPoolSize()
+   nRoutines = nRoutines + 10      //Adding 10 more go routines to pool
+   pool.SetPoolSize(nRoutines)
+   ```
 
 ### Testing - 
 1. Build the docker image
-```shell
-docker build --tag go-pool .
-```
+   ```shell
+   docker build --tag go-pool .
+   ```
 2. Execute all the test cases
-```shell
-docker run go-pool go test ./...               //Silently
-docker run go-pool go test -v ./...            //With verbose logs
-```
+   ```shell
+   docker run go-pool go test ./...               //Silently
+   docker run go-pool go test -v ./...            //With verbose logs
+   ```
 3. To view the test coverage report
-```shell
-docker run go-pool go test -cover ./...
-```
+   ```shell
+   docker run go-pool go test -cover ./...
+   ```
