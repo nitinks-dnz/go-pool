@@ -17,10 +17,10 @@ var (
 
 // Pool is a struct which contains the list of routines
 type Pool struct {
-	wFun func() Worker
+	WorkerFun func() Worker
 
-	reqChan chan interface{}
-	retChan chan interface{}
+	ReqChan chan interface{}
+	RetChan chan interface{}
 }
 
 // Worker is an interface representing the routine agent
@@ -41,9 +41,9 @@ func Initialize(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool
 func New(n int, wFun func() Worker) *Pool {
 	once.Do(func() {
 		poolVar = &Pool{
-			wFun:    wFun,
-			reqChan: make(chan interface{}, n),
-			retChan: make(chan interface{}, n),
+			WorkerFun: wFun,
+			ReqChan:   make(chan interface{}, n),
+			RetChan:   make(chan interface{}, n),
 		}
 		go poolVar.initWorkers(n)
 	})
@@ -54,23 +54,23 @@ func (p *Pool) initWorkers(n int) {
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go p.worker(&wg, p.wFun())
+		go p.worker(&wg, p.WorkerFun())
 	}
 	wg.Wait()
 }
 
 func (p *Pool) worker(wg *sync.WaitGroup, worker Worker) {
-	for req := range p.reqChan {
-		p.retChan <- worker.Process(req)
+	for req := range p.ReqChan {
+		p.RetChan <- worker.Process(req)
 	}
 	wg.Done()
 }
 
 func (p *Pool) Process(reqPayload interface{}) interface{} {
 
-	p.reqChan <- reqPayload
+	p.ReqChan <- reqPayload
 
-	retPayload, retOk := <-p.retChan
+	retPayload, retOk := <-p.RetChan
 	if !retOk {
 		panic(ErrWorkerClosed)
 	}
@@ -86,13 +86,13 @@ func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration) 
 	var open bool
 
 	select {
-	case p.reqChan <- reqPayload:
+	case p.ReqChan <- reqPayload:
 	case <-tout.C:
 		return nil, ErrJobTimedOut
 	}
 
 	select {
-	case retPayload, open = <-p.retChan:
+	case retPayload, open = <-p.RetChan:
 		if !open {
 			return nil, ErrWorkerClosed
 		}
@@ -105,8 +105,8 @@ func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration) 
 }
 
 func (p *Pool) Close() {
-	close(p.reqChan)
-	close(p.retChan)
+	close(p.ReqChan)
+	close(p.RetChan)
 }
 
 func setCpuToBeUsed(n int) {

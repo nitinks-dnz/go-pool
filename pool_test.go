@@ -21,9 +21,9 @@ func newTestPool(nCpus int, nRoutines int, f func(interface{}) interface{}) *Poo
 
 func newWorker(n int, payload func() Worker) *Pool {
 	poolVar = &Pool{
-		wFun:    payload,
-		reqChan: make(chan interface{}, n),
-		retChan: make(chan interface{}, n),
+		WorkerFun: payload,
+		ReqChan:   make(chan interface{}, n),
+		RetChan:   make(chan interface{}, n),
 	}
 
 	go poolVar.initWorkers(n)
@@ -88,13 +88,13 @@ func TestPayloadTimedout(t *testing.T) {
 
 func TestPoolSizeAdjustment(t *testing.T) {
 	pool := Initialize(8, 10, func(interface{}) interface{} { return "Foo" })
-	if exp, act := 10, cap(pool.reqChan); exp != act {
+	if exp, act := 10, cap(pool.ReqChan); exp != act {
 		t.Errorf("Wrong size of pool: %v != %v", act, exp)
 	}
 
 	//Testng of pool close
 	pool.Close()
-	_, reqOk := <-pool.reqChan
+	_, reqOk := <-pool.ReqChan
 	if reqOk {
 		t.Errorf("Pool should be closed")
 	}
@@ -103,7 +103,7 @@ func TestPoolSizeAdjustment(t *testing.T) {
 func TestSingletonInitialization(t *testing.T) {
 	pool := Initialize(8, 10, func(f interface{}) interface{} { return f.(int) })
 
-	_, reqOk := <-pool.reqChan
+	_, reqOk := <-pool.ReqChan
 	if reqOk {
 		t.Errorf("Pool should be closed")
 	}
