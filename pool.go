@@ -8,10 +8,8 @@ import (
 )
 
 var (
-	ErrPoolNotRunning = errors.New("the pool is closed")
-	ErrJobNotFunc     = errors.New("init worker not given a func()")
-	ErrWorkerClosed   = errors.New("no routine is active")
-	ErrJobTimedOut    = errors.New("job request timed expired")
+	ErrWorkerClosed = errors.New("no routine is active")
+	ErrJobTimedOut  = errors.New("job request timed expired")
 
 	once    sync.Once
 	poolVar *Pool
@@ -19,22 +17,15 @@ var (
 
 // Pool is a struct which contains the list of routines
 type Pool struct {
-	reqQueue int
+	wFun func() Worker
 
-	payload  func() Worker
-	routines []*routines
-	reqChan  chan routineRequest
-
-	mut sync.Mutex
+	reqChan chan interface{}
+	retChan chan interface{}
 }
 
 // Worker is an interface representing the routine agent
 type Worker interface {
 	Process(interface{}) interface{}
-
-	BlockUntilReady()
-	Interrupt()
-	Terminate()
 }
 
 // Initialize is the public function which creates the pool
@@ -47,117 +38,75 @@ func Initialize(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool
 	})
 }
 
-func New(n int, payload func() Worker) *Pool {
+func New(n int, wFun func() Worker) *Pool {
 	once.Do(func() {
 		poolVar = &Pool{
-			payload: payload,
-			reqChan: make(chan routineRequest),
+			wFun:    wFun,
+			reqChan: make(chan interface{}, n),
+			retChan: make(chan interface{}, n),
 		}
-		poolVar.SetPoolSize(n)
+		go poolVar.initWorkers(n)
 	})
 	return poolVar
 }
 
-func (p *Pool) Process(reqPayload interface{}) interface{} {
-	p.reqQueue = p.reqQueue + 1
-
-	request, reqOk := <-p.reqChan
-	if !reqOk {
-		panic(ErrPoolNotRunning)
+func (p *Pool) initWorkers(n int) {
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go p.worker(&wg, p.wFun())
 	}
+	wg.Wait()
+}
 
-	request.reqChan <- reqPayload
+func (p *Pool) worker(wg *sync.WaitGroup, worker Worker) {
+	for req := range p.reqChan {
+		p.retChan <- worker.Process(req)
+	}
+	wg.Done()
+}
 
-	retPayload, retOk := <-request.retChan
+func (p *Pool) Process(reqPayload interface{}) interface{} {
+
+	p.reqChan <- reqPayload
+
+	retPayload, retOk := <-p.retChan
 	if !retOk {
 		panic(ErrWorkerClosed)
 	}
 
-	p.reqQueue = p.reqQueue - 1
 	return retPayload
 }
 
 func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration) (interface{}, error) {
-	p.reqQueue = p.reqQueue + 1
 
 	tout := time.NewTimer(timeout)
-	var request routineRequest
+
 	var retPayload interface{}
 	var open bool
 
 	select {
-	case request, open = <-p.reqChan:
-		if !open {
-			return nil, ErrPoolNotRunning
-		}
+	case p.reqChan <- reqPayload:
 	case <-tout.C:
-		p.reqQueue = p.reqQueue - 1
 		return nil, ErrJobTimedOut
 	}
 
 	select {
-	case request.reqChan <- reqPayload:
-	case <-tout.C:
-		request.interruptFunc()
-		p.reqQueue = p.reqQueue - 1
-		return nil, ErrJobTimedOut
-	}
-
-	select {
-	case retPayload, open = <-request.retChan:
+	case retPayload, open = <-p.retChan:
 		if !open {
 			return nil, ErrWorkerClosed
 		}
 	case <-tout.C:
-		request.interruptFunc()
-		p.reqQueue = p.reqQueue - 1
 		return nil, ErrJobTimedOut
 	}
 
 	tout.Stop()
-	p.reqQueue = p.reqQueue - 1
 	return retPayload, nil
 }
 
-func (p *Pool) SetPoolSize(n int) {
-	p.mut.Lock()
-	defer p.mut.Unlock()
-
-	lWorkers := len(p.routines)
-	if lWorkers == n {
-		return
-	}
-
-	for i := lWorkers; i < n; i++ {
-		p.routines = append(p.routines, newRoutineWrapper(p.reqChan, p.payload()))
-	}
-
-	for i := n; i < lWorkers; i++ {
-		p.routines[i].stop()
-	}
-
-	for i := n; i < lWorkers; i++ {
-		p.routines[i].join()
-		p.routines[i] = nil
-	}
-
-	p.routines = p.routines[:n]
-}
-
-func (p *Pool) GetPoolSize() int {
-	p.mut.Lock()
-	defer p.mut.Unlock()
-
-	return len(p.routines)
-}
-
 func (p *Pool) Close() {
-	p.SetPoolSize(0)
 	close(p.reqChan)
-}
-
-func (p *Pool) QueueLength() int {
-	return p.reqQueue
+	close(p.retChan)
 }
 
 func setCpuToBeUsed(n int) {
@@ -173,6 +122,3 @@ type initWorker struct {
 func (w *initWorker) Process(payload interface{}) interface{} {
 	return w.processor(payload)
 }
-func (w *initWorker) BlockUntilReady() {}
-func (w *initWorker) Interrupt()       {}
-func (w *initWorker) Terminate()       {}
