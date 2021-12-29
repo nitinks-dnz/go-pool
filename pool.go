@@ -2,6 +2,7 @@ package go_pool
 
 import (
 	"errors"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -19,13 +20,8 @@ var (
 
 // Pool is a struct which contains the list of routines
 type Pool struct {
-	//WorkerFun   func() Worker
-	WorkerCount int
-
-	ReqChan chan RequestChannel
-	RetChan chan interface{}
-
-	wg sync.WaitGroup
+	WorkerChan chan int
+	ReqChan    chan *RequestChannel
 }
 
 // Initialize is the public function which creates the pool
@@ -33,54 +29,66 @@ func Initialize(nRoutines int) *Pool {
 	once.Do(func() {
 		setCpuToBeUsed()
 		poolVar = &Pool{
-			WorkerCount: 0,
-
-			ReqChan: make(chan RequestChannel, nRoutines),
-			RetChan: make(chan interface{}, nRoutines),
+			WorkerChan: make(chan int, nRoutines),
+			ReqChan:    make(chan *RequestChannel),
 		}
+		go poolVar.initWorker()
 	})
 	return poolVar
 }
 
-func (p *Pool) addWorker() {
-	if p.WorkerCount < 10 {
-		p.WorkerCount = p.WorkerCount + 1
-		p.wg.Add(1)
-		go p.worker(&p.wg)
-		p.wg.Wait()
+func (p *Pool) initWorker() {
+	for {
+		req, ok := <-p.ReqChan
+		if !ok {
+			return
+		} else {
+			go p.worker(req)
+			p.WorkerChan <- len(p.WorkerChan) + 1
+		}
 	}
-	return
 }
 
-func (p *Pool) worker(wg *sync.WaitGroup) {
-	for req := range p.ReqChan {
-		p.RetChan <- req.wFun.Process(req.input)
-	}
-	p.WorkerCount = p.WorkerCount - 1
-	wg.Done()
+func (p *Pool) worker(req *RequestChannel) {
+	defer func() {
+		i := <-p.WorkerChan
+		req.wId = i
+	}()
+
+	req.retChan <- req.wFun.Process(req.input)
 }
 
 func (p *Pool) Process(input ReqPayload, f func(payload ReqPayload) RetPayload) (RetPayload, error) {
-	p.ReqChan <- RequestChannel{
+	req := RequestChannel{
 		input: input,
 		wFun: func() WorkerFun {
 			return &initWorker{
 				processor: f,
 			}
 		}(),
+		retChan: make(chan RetPayload),
 	}
+	p.ReqChan <- &req
 
-	go p.addWorker()
-
-	retPayload, retOk := <-p.RetChan
+	retPayload, retOk := <-req.retChan
 	if !retOk {
 		return nil, ErrWorkerClosed
 	}
 
+	log.Println("Processed job -> ", input, " by worker", req.wId)
 	return retPayload, nil
 }
 
 func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration, f func(payload ReqPayload) RetPayload) (RetPayload, error) {
+	req := RequestChannel{
+		input: reqPayload,
+		wFun: func() WorkerFun {
+			return &initWorker{
+				processor: f,
+			}
+		}(),
+		retChan: make(chan RetPayload),
+	}
 
 	tout := time.NewTimer(timeout)
 
@@ -88,22 +96,13 @@ func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration, 
 	var open bool
 
 	select {
-	case p.ReqChan <- RequestChannel{
-		input: reqPayload,
-		wFun: func() WorkerFun {
-			return &initWorker{
-				processor: f,
-			}
-		}(),
-	}:
+	case p.ReqChan <- &req:
 	case <-tout.C:
 		return nil, ErrJobTimedOut
 	}
 
-	go p.addWorker()
-
 	select {
-	case retPayload, open = <-p.RetChan:
+	case retPayload, open = <-req.retChan:
 		if !open {
 			return nil, ErrWorkerClosed
 		}
@@ -117,10 +116,11 @@ func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration, 
 
 func (p *Pool) Close() {
 	close(p.ReqChan)
-	close(p.RetChan)
+	close(p.WorkerChan)
 }
 
 func setCpuToBeUsed() {
+	//toDo use Flag
 	n, err := strconv.Atoi(os.Getenv("SET_CPU"))
 	if err == nil && n != 0 && n < runtime.NumCPU() {
 		runtime.GOMAXPROCS(n)

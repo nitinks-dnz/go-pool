@@ -17,6 +17,8 @@ func (w *initWorker) Process(payload ReqPayload) RetPayload {
 }
 
 type RequestChannel struct {
-	wFun  WorkerFun
-	input ReqPayload
+	wId     int
+	wFun    WorkerFun
+	input   ReqPayload
+	retChan chan RetPayload
 }

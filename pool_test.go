@@ -11,11 +11,10 @@ import (
 func newTestPool(nRoutines int) *Pool {
 	setCpuToBeUsed()
 	poolVar = &Pool{
-		WorkerCount: 0,
-
-		ReqChan: make(chan RequestChannel, nRoutines),
-		RetChan: make(chan interface{}, nRoutines),
+		WorkerChan: make(chan int, nRoutines),
+		ReqChan:    make(chan *RequestChannel),
 	}
+	go poolVar.initWorker()
 	return poolVar
 }
 
@@ -50,14 +49,19 @@ func TestProcessJob(t *testing.T) {
 	defer pool.Close()
 
 	for i := 0; i < 20; i++ {
-		ret, err := pool.Process(i, func(i ReqPayload) RetPayload { return i.(int) })
-		if err != nil {
-			t.Errorf("Error caused: %v", err)
-		}
-		if exp, act := i, ret.(int); exp != act {
-			t.Errorf("Wrong result: %v != %v", act, exp)
-		}
+		go func(itr int) {
+			ret, err := pool.Process(itr, func(itr ReqPayload) RetPayload { return itr.(int) })
+			if err != nil {
+				t.Errorf("Error caused: %v", err)
+			}
+			if exp, act := itr, ret.(int); exp != act {
+				t.Errorf("Wrong result: %v != %v", act, exp)
+			}
+		}(i)
 	}
+
+	//wait until processes are finished
+	<-time.After(5 * time.Millisecond)
 }
 
 func TestProcessJobMultiFunction(t *testing.T) {
@@ -68,7 +72,7 @@ func TestProcessJobMultiFunction(t *testing.T) {
 	pool := newTestPool(10)
 	defer pool.Close()
 
-	func() {
+	go func() {
 		ret, err := pool.Process(1, func(i ReqPayload) RetPayload { return i.(int) })
 		if err != nil {
 			t.Errorf("Error caused: %v", err)
@@ -78,7 +82,7 @@ func TestProcessJobMultiFunction(t *testing.T) {
 		}
 	}()
 
-	func() {
+	go func() {
 		ret, err := pool.Process("Foo", func(i ReqPayload) RetPayload { return i.(string) })
 		if err != nil {
 			t.Errorf("Error caused: %v", err)
@@ -87,6 +91,9 @@ func TestProcessJobMultiFunction(t *testing.T) {
 			t.Errorf("Wrong result: %v != %v", act, exp)
 		}
 	}()
+
+	//wait until processes are finished
+	<-time.After(5 * time.Millisecond)
 }
 
 func TestProcessWithExpiryJob(t *testing.T) {
@@ -132,7 +139,7 @@ func TestPoolSizeAdjustment(t *testing.T) {
 		t.Errorf("Error caused: %v", err)
 	}
 	pool := Initialize(10)
-	if exp, act := 10, cap(pool.ReqChan); exp != act {
+	if exp, act := 10, cap(pool.WorkerChan); exp != act {
 		t.Errorf("Wrong size of pool: %v != %v", act, exp)
 	}
 
