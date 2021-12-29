@@ -32,17 +32,11 @@ This GoLang library manages a pool of goroutines which has got the ability to de
    ```
 3. Adding jobs to the pool
    ```go
-   output := pool.Process(input)
+   output, error := pool.Process(input)
    ```
 4. Adding jobs to the pool with timeout
    ```go
-   output := pool.ProcessWithExpiry(input, time.Duration(time.Second))
-   ```
-5. Managing the pool size
-   ```go
-   nRoutines := pool.GetPoolSize()
-   nRoutines = nRoutines + 10      //Adding 10 more go routines to pool
-   pool.SetPoolSize(nRoutines)
+   output, eerror := pool.ProcessWithExpiry(input, time.Duration(time.Second))
    ```
 
 ### Testing - 

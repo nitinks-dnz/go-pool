@@ -6,10 +6,6 @@ import (
 	"time"
 )
 
-var (
-	tPool *Pool
-)
-
 func newTestPool(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool {
 	setCpuToBeUsed(nCpus)
 	return newWorker(nRoutines, func() Worker {
@@ -50,7 +46,10 @@ func TestProcessJob(t *testing.T) {
 	defer pool.Close()
 
 	for i := 0; i < 20; i++ {
-		ret := pool.Process(i)
+		ret, err := pool.Process(i)
+		if err != nil {
+			t.Errorf("Error caused: %v", err)
+		}
 		if exp, act := i, ret.(int); exp != act {
 			t.Errorf("Wrong result: %v != %v", act, exp)
 		}
@@ -62,7 +61,7 @@ func TestProcessWithExpiryJob(t *testing.T) {
 	defer pool.Close()
 
 	for i := 0; i < 10; i++ {
-		ret, err := pool.ProcessWithExpiry(i, time.Duration(time.Millisecond))
+		ret, err := pool.ProcessWithExpiry(i, time.Millisecond)
 		if err != nil {
 			t.Errorf("Error caused: %v", err)
 		}
@@ -80,7 +79,7 @@ func TestPayloadTimedout(t *testing.T) {
 	})
 	defer pool.Close()
 
-	_, act := pool.ProcessWithExpiry(1, time.Duration(time.Millisecond))
+	_, act := pool.ProcessWithExpiry(1, time.Millisecond)
 	if exp := ErrJobTimedOut; exp != act {
 		t.Errorf("Wrong error returned: %v != %v", act, exp)
 	}

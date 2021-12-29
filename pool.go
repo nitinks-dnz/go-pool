@@ -73,17 +73,17 @@ func (p *Pool) worker(wg *sync.WaitGroup, worker Worker) {
 	wg.Done()
 }
 
-func (p *Pool) Process(reqPayload interface{}) interface{} {
+func (p *Pool) Process(reqPayload interface{}) (interface{}, error) {
 	p.ReqChan <- reqPayload
 
 	go p.addWorker()
 
 	retPayload, retOk := <-p.RetChan
 	if !retOk {
-		panic(ErrWorkerClosed)
+		return nil, ErrWorkerClosed
 	}
 
-	return retPayload
+	return retPayload, nil
 }
 
 func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration) (interface{}, error) {
