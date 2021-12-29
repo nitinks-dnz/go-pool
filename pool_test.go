@@ -26,7 +26,7 @@ func newWorker(n int, payload func() Worker) *Pool {
 		RetChan:   make(chan interface{}, n),
 	}
 
-	go poolVar.initWorkers(n)
+	//go poolVar.initWorkers(n)
 
 	return poolVar
 }
@@ -47,14 +47,14 @@ func TestNumberOfCPUtoBeUsed(t *testing.T) {
 
 func TestProcessJob(t *testing.T) {
 	pool := newTestPool(8, 10, func(f interface{}) interface{} { return f.(int) })
+	defer pool.Close()
 
-	for i := 0; i < 10; i++ {
-		ret := pool.Process(1)
-		if exp, act := 1, ret.(int); exp != act {
+	for i := 0; i < 20; i++ {
+		ret := pool.Process(i)
+		if exp, act := i, ret.(int); exp != act {
 			t.Errorf("Wrong result: %v != %v", act, exp)
 		}
 	}
-	pool.Close()
 }
 
 func TestProcessWithExpiryJob(t *testing.T) {

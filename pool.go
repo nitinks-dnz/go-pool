@@ -17,10 +17,13 @@ var (
 
 // Pool is a struct which contains the list of routines
 type Pool struct {
-	WorkerFun func() Worker
+	WorkerFun   func() Worker
+	WorkerCount int
 
 	ReqChan chan interface{}
 	RetChan chan interface{}
+
+	wg sync.WaitGroup
 }
 
 // Worker is an interface representing the routine agent
@@ -41,34 +44,39 @@ func Initialize(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool
 func New(n int, wFun func() Worker) *Pool {
 	once.Do(func() {
 		poolVar = &Pool{
-			WorkerFun: wFun,
-			ReqChan:   make(chan interface{}, n),
-			RetChan:   make(chan interface{}, n),
+			WorkerFun:   wFun,
+			WorkerCount: 0,
+
+			ReqChan: make(chan interface{}, n),
+			RetChan: make(chan interface{}, n),
 		}
-		go poolVar.initWorkers(n)
+		//go poolVar.initWorkers(n)
 	})
 	return poolVar
 }
 
-func (p *Pool) initWorkers(n int) {
-	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go p.worker(&wg, p.WorkerFun())
+func (p *Pool) addWorker() {
+	if p.WorkerCount < 10 {
+		p.WorkerCount = p.WorkerCount + 1
+		p.wg.Add(1)
+		go p.worker(&p.wg, p.WorkerFun())
+		p.wg.Wait()
 	}
-	wg.Wait()
+	return
 }
 
 func (p *Pool) worker(wg *sync.WaitGroup, worker Worker) {
 	for req := range p.ReqChan {
 		p.RetChan <- worker.Process(req)
 	}
+	p.WorkerCount = p.WorkerCount - 1
 	wg.Done()
 }
 
 func (p *Pool) Process(reqPayload interface{}) interface{} {
-
 	p.ReqChan <- reqPayload
+
+	go p.addWorker()
 
 	retPayload, retOk := <-p.RetChan
 	if !retOk {
@@ -90,6 +98,8 @@ func (p *Pool) ProcessWithExpiry(reqPayload interface{}, timeout time.Duration) 
 	case <-tout.C:
 		return nil, ErrJobTimedOut
 	}
+
+	go p.addWorker()
 
 	select {
 	case retPayload, open = <-p.RetChan:
