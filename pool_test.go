@@ -1,52 +1,56 @@
 package go_pool
 
 import (
+	"os"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 )
 
-func newTestPool(nCpus int, nRoutines int, f func(interface{}) interface{}) *Pool {
-	setCpuToBeUsed(nCpus)
-	return newWorker(nRoutines, func() Worker {
-		return &initWorker{
-			processor: f,
-		}
-	})
-}
-
-func newWorker(n int, payload func() Worker) *Pool {
+func newTestPool(nRoutines int) *Pool {
+	setCpuToBeUsed()
 	poolVar = &Pool{
-		WorkerFun: payload,
-		ReqChan:   make(chan interface{}, n),
-		RetChan:   make(chan interface{}, n),
+		WorkerCount: 0,
+
+		ReqChan: make(chan RequestChannel, nRoutines),
+		RetChan: make(chan interface{}, nRoutines),
 	}
-
-	//go poolVar.initWorkers(n)
-
 	return poolVar
 }
 
 func TestNumberOfCPUtoBeUsed(t *testing.T) {
 	nCPU := runtime.NumCPU()
-	pool := newTestPool(nCPU*4, 1, func(interface{}) interface{} { return "foo" })
+	err1 := os.Setenv("SET_CPU", strconv.Itoa(nCPU*4))
+	if err1 != nil {
+		t.Errorf("Error caused: %v", err1)
+	}
+	pool := newTestPool(1)
 	defer pool.Close()
 	if exp, act := nCPU, runtime.GOMAXPROCS(nCPU); exp != act {
 		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
 	}
 
-	setCpuToBeUsed(nCPU / 2)
+	err2 := os.Setenv("SET_CPU", strconv.Itoa(nCPU/2))
+	if err2 != nil {
+		t.Errorf("Error caused: %v", err2)
+	}
+	setCpuToBeUsed()
 	if exp, act := nCPU/2, runtime.GOMAXPROCS(nCPU/2); exp != act {
 		t.Errorf("Expected %v no of CPUs to be used, but got %v ", exp, act)
 	}
 }
 
 func TestProcessJob(t *testing.T) {
-	pool := newTestPool(8, 10, func(f interface{}) interface{} { return f.(int) })
+	err := os.Setenv("SET_CPU", strconv.Itoa(8))
+	if err != nil {
+		t.Errorf("Error caused: %v", err)
+	}
+	pool := newTestPool(10)
 	defer pool.Close()
 
 	for i := 0; i < 20; i++ {
-		ret, err := pool.Process(i)
+		ret, err := pool.Process(i, func(i ReqPayload) RetPayload { return i.(int) })
 		if err != nil {
 			t.Errorf("Error caused: %v", err)
 		}
@@ -56,12 +60,45 @@ func TestProcessJob(t *testing.T) {
 	}
 }
 
+func TestProcessJobMultiFunction(t *testing.T) {
+	err := os.Setenv("SET_CPU", strconv.Itoa(8))
+	if err != nil {
+		t.Errorf("Error caused: %v", err)
+	}
+	pool := newTestPool(10)
+	defer pool.Close()
+
+	func() {
+		ret, err := pool.Process(1, func(i ReqPayload) RetPayload { return i.(int) })
+		if err != nil {
+			t.Errorf("Error caused: %v", err)
+		}
+		if exp, act := 1, ret.(int); exp != act {
+			t.Errorf("Wrong result: %v != %v", act, exp)
+		}
+	}()
+
+	func() {
+		ret, err := pool.Process("Foo", func(i ReqPayload) RetPayload { return i.(string) })
+		if err != nil {
+			t.Errorf("Error caused: %v", err)
+		}
+		if exp, act := "Foo", ret.(string); exp != act {
+			t.Errorf("Wrong result: %v != %v", act, exp)
+		}
+	}()
+}
+
 func TestProcessWithExpiryJob(t *testing.T) {
-	pool := newTestPool(8, 10, func(f interface{}) interface{} { return f.(int) })
+	err := os.Setenv("SET_CPU", strconv.Itoa(8))
+	if err != nil {
+		t.Errorf("Error caused: %v", err)
+	}
+	pool := newTestPool(10)
 	defer pool.Close()
 
 	for i := 0; i < 10; i++ {
-		ret, err := pool.ProcessWithExpiry(i, time.Millisecond)
+		ret, err := pool.ProcessWithExpiry(i, time.Millisecond, func(i ReqPayload) RetPayload { return i.(int) })
 		if err != nil {
 			t.Errorf("Error caused: %v", err)
 		}
@@ -72,36 +109,35 @@ func TestProcessWithExpiryJob(t *testing.T) {
 }
 
 func TestPayloadTimedout(t *testing.T) {
-	pool := newTestPool(8, 1, func(f interface{}) interface{} {
-		val := f.(int)
+	err := os.Setenv("SET_CPU", strconv.Itoa(8))
+	if err != nil {
+		t.Errorf("Error caused: %v", err)
+	}
+	pool := newTestPool(1)
+	defer pool.Close()
+
+	_, act := pool.ProcessWithExpiry(1, time.Millisecond, func(i ReqPayload) RetPayload {
+		val := i.(int)
 		<-time.After(2 * time.Millisecond)
 		return val
 	})
-	defer pool.Close()
-
-	_, act := pool.ProcessWithExpiry(1, time.Millisecond)
 	if exp := ErrJobTimedOut; exp != act {
 		t.Errorf("Wrong error returned: %v != %v", act, exp)
 	}
 }
 
 func TestPoolSizeAdjustment(t *testing.T) {
-	pool := Initialize(8, 10, func(interface{}) interface{} { return "Foo" })
+	err := os.Setenv("SET_CPU", strconv.Itoa(8))
+	if err != nil {
+		t.Errorf("Error caused: %v", err)
+	}
+	pool := Initialize(10)
 	if exp, act := 10, cap(pool.ReqChan); exp != act {
 		t.Errorf("Wrong size of pool: %v != %v", act, exp)
 	}
 
 	//Testng of pool close
 	pool.Close()
-	_, reqOk := <-pool.ReqChan
-	if reqOk {
-		t.Errorf("Pool should be closed")
-	}
-}
-
-func TestSingletonInitialization(t *testing.T) {
-	pool := Initialize(8, 10, func(f interface{}) interface{} { return f.(int) })
-
 	_, reqOk := <-pool.ReqChan
 	if reqOk {
 		t.Errorf("Pool should be closed")
